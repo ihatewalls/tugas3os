@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <fcntl.h>  // Untuk system call open()
 #include <unistd.h> // Untuk system call write() & close()
@@ -11,7 +13,7 @@
 // Variabel penyimpan metrik sementara untuk keperluan pencatatan log
 static long log_vmsize_last = 0;
 static long log_vmrss_last = 0;
-
+long page_size;
 // Membaca dan menampilkan VmSize & VmRSS langsung dari /proc/self/status
 void cetak_status_memori(const char *label)
 {
@@ -191,9 +193,38 @@ void jalankan_alokasi(int pilihan)
     }
 }
 
+void jalankan_variasi_kelompok(){
+    int *arr = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);    
+    mprotect(arr, page_size, PROT_READ);
+    printf("--- Varian 7: mprotect & Signal ---\n");
+    printf("[Output] Mencoba menulis ke memori Read-Only...\n");
+    arr[0] = 1;
+    printf("[Output] Berhasil menulis setelah signal handler dipanggil\n");
+}
+static void handler(int sig, siginfo_t *info, void *unused)
+{
+    if (info->si_code != SEGV_ACCERR) { // makes sure signal is caused by forbidden write
+        _exit(EXIT_FAILURE);
+    }
+    char msg[] = "[Signal Handler] SIGSEGV tertangkap! Memulihkan isin PROT_WRITE...\n";
+    write(1, msg, sizeof(msg) - 1);
+    uintptr_t page_start = (uintptr_t)info->si_addr & ~((uintptr_t)page_size - 1); // rounds memory address down to page start to allign with mprotect
+    if(mprotect((void *)page_start, page_size, PROT_READ | PROT_WRITE) == -1){
+        _exit(EXIT_FAILURE);
+    }
+}
 int main(void)
 {
+    page_size = sysconf(_SC_PAGESIZE);
     int input;
+    struct sigaction sa;
+    sa.sa_sigaction = handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGSEGV, &sa, NULL) < 0) {
+        perror("sigaction registration failed");
+        return EXIT_FAILURE;
+    }
 
     while (1)
     {
@@ -214,7 +245,7 @@ int main(void)
             jalankan_alokasi(input);
             break;
         case 3:
-            printf("Fitur variasi kelompok belum dihubungkan.\n\n");
+            jalankan_variasi_kelompok();
             break;
         case 4:
             return 0;
