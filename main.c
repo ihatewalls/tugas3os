@@ -7,6 +7,7 @@
 #include <fcntl.h>  // Untuk system call open()
 #include <unistd.h> // Untuk system call write() & close()
 #include <time.h>   // Untuk timestamp nama file log
+#include "banner.h"
 
 #define KELOMPOK "B07"
 
@@ -228,12 +229,7 @@ int main(void)
 
     while (1)
     {
-        printf("=== KELOMPOK B07 TUGAS MEMORI ===\n");
-        printf("1. Allocate with malloc/free\n");
-        printf("2. Allocate with mmap/munmap\n");
-        printf("3. Eksekusi Fitur Variasi Kelompok\n");
-        printf("4. Exit\n");
-        printf("Input: ");
+        print_banner();
 
         if (scanf("%d", &input) != 1)
             break;
