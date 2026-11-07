@@ -1,4 +1,5 @@
 CC     = gcc
+CFLAGS = -Wall -Wextra -O2
 SRC    = main.c banner.c
 HDR    = banner.h
 
@@ -19,4 +20,5 @@ mem_static: $(SRC) $(HDR)
 clean:
 	rm -f mem_static mem_dynamic
 
-
+# menentukan bahwa nama di bawah adalah nama perintah bukan nama file
+.PHONY: all static dynamic clean
