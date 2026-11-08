@@ -207,8 +207,11 @@ static void handler(int sig, siginfo_t *info, void *unused)
     if (info->si_code != SEGV_ACCERR) { // makes sure signal is caused by forbidden write
         _exit(EXIT_FAILURE);
     }
+    (void) sig;
+    (void) unused;
     char msg[] = "[Signal Handler] SIGSEGV tertangkap! Memulihkan isin PROT_WRITE...\n";
-    write(1, msg, sizeof(msg) - 1);
+    ssize_t r = write(1, msg, sizeof(msg) - 1);
+    (void) r;
     uintptr_t page_start = (uintptr_t)info->si_addr & ~((uintptr_t)page_size - 1); // rounds memory address down to page start to allign with mprotect
     if(mprotect((void *)page_start, page_size, PROT_READ | PROT_WRITE) == -1){
         _exit(EXIT_FAILURE);
