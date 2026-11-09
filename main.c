@@ -7,9 +7,13 @@
 #include <fcntl.h>  // Untuk system call open()
 #include <unistd.h> // Untuk system call write() & close()
 #include <time.h>   // Untuk timestamp nama file log
+#include <limits.h> // Untuk INT_MIN dan INT_MAX (validasi input angka)
 #include "banner.h"
 
 #define KELOMPOK "B07"
+
+// Batas jumlah integer yang boleh dialokasi (sekitar 400 MB) agar komputer tidak kehabisan memori
+#define BATAS_N 100000000
 
 // Variabel penyimpan metrik sementara untuk keperluan pencatatan log
 static long log_vmsize_last = 0;
@@ -32,6 +36,10 @@ void cetak_status_memori(const char *label)
                 sscanf(baris + 6, "%ld", &vmrss);
         }
         fclose(file);
+    }
+    else
+    {
+        perror("Gagal membuka /proc/self/status");
     }
     printf("VmSize %s: %ld KB | VmRSS %s: %ld KB\n", label, vmsize, label, vmrss);
 
@@ -121,27 +129,80 @@ void catat_log(int pilihan, long vmsize_bef, long vmrss_bef,
     tulis_log_sys(nama_sys, pilihan, vmsize_bef, vmrss_bef, addr, data, n, vmsize_aft, vmrss_aft);
 }
 
+// Membuang sisa input di buffer sampai akhir baris
+static void bersihkan_buffer(void)
+{
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF)
+    {
+        // tidak melakukan apa-apa, hanya membuang karakter
+    }
+}
+
+// Membaca satu bilangan bulat dari keyboard dengan aman
+static int baca_angka(int *hasil)
+{
+    // Dibaca sebagai long long dulu supaya angka yang sangat besar tidak terpotong
+    long long angka;
+    int status = scanf("%lld", &angka);
+
+    if (status == EOF)
+    {
+        return -1;
+    }
+    if (status != 1)
+    {
+        // bukan angka, buang sisa barisnya
+        bersihkan_buffer();
+        return 0;
+    }
+
+    // Angka berhasil dibaca, sekarang cek karakter setelahnya.
+    // Spasi di akhir baris boleh, tapi karakter lain (misal ".5") tidak valid.
+    int c = getchar();
+    while (c == ' ' || c == '\t' || c == '\r')
+    {
+        c = getchar();
+    }
+    if (c != '\n' && c != EOF)
+    {
+        bersihkan_buffer();
+        return 0;
+    }
+
+    // Angka di luar jangkauan int dianggap tidak valid
+    if (angka < INT_MIN || angka > INT_MAX)
+    {
+        return 0;
+    }
+
+    *hasil = (int)angka;
+    return 1;
+}
+
 // Fungsi utama alokasi (1 = malloc, 2 = mmap)
 void jalankan_alokasi(int pilihan)
 {
-    printf(pilihan == 1 ? "You picked malloc/free.\n\n" : "You picked mmap/munmap.\n\n");
+    printf("\n");
+    printf(pilihan == 1 ? "You picked malloc/free.\n" : "You picked mmap/munmap.\n");
 
+    // Metrik SEBELUM alokasi
     cetak_status_memori("Before");
     long vmsize_bef = log_vmsize_last;
     long vmrss_bef = log_vmrss_last;
 
     int n;
     printf("How many integers to allocate: ");
-    if (scanf("%d", &n) != 1 || n <= 0)
+    if (baca_angka(&n) != 1 || n <= 0 || n > BATAS_N)
     {
-        printf("Jumlah input tidak valid.\n\n");
+        printf("Jumlah input tidak valid (harus bilangan bulat 1 sampai %d).\n\n", BATAS_N);
         return;
     }
 
     size_t bytes = (size_t)n * sizeof(int);
     int *data = NULL;
 
-    // Alokasi memori
+    // Alokasi memori (malloc / mmap)
     if (pilihan == 1)
     {
         data = malloc(bytes);
@@ -156,10 +217,11 @@ void jalankan_alokasi(int pilihan)
     if (!data)
     {
         perror("Alokasi memori gagal");
+        printf("\n");
         return;
     }
 
-    printf("Starting memory address: %p\n", (void *)data);
+    printf("\nStarting memory address: %p\n", (void *)data);
 
     // Tulis nilai ke memori (memicu masuk ke RAM fisik / VmRSS naik)
     for (int i = 0; i < n; i++)
@@ -174,7 +236,10 @@ void jalankan_alokasi(int pilihan)
     {
         printf("%d\n", data[i]);
     }
+    printf("\n");
 
+    // Metrik SESUDAH alokasi dan setelah memori diisi:
+    // VmSize naik karena ruang alamat bertambah, VmRSS naik karena halaman sudah ditulis.
     cetak_status_memori("After");
     long vmsize_aft = log_vmsize_last;
     long vmrss_aft = log_vmrss_last;
@@ -190,7 +255,10 @@ void jalankan_alokasi(int pilihan)
     }
     else
     {
-        munmap(data, bytes);
+        if (munmap(data, bytes) == -1)
+        {
+            perror("munmap gagal");
+        }
     }
 }
 
@@ -234,8 +302,19 @@ int main(void)
     {
         print_banner();
 
-        if (scanf("%d", &input) != 1)
+        int status = baca_angka(&input);
+        if (status == -1)
+        {
+            // input habis (misalnya tekan Ctrl+D), keluar dari program
+            printf("\n");
             break;
+        }
+        if (status == 0)
+        {
+            // bukan angka (misalnya huruf), tampilkan menu lagi
+            printf("Pilihan tidak valid.\n\n");
+            continue;
+        }
 
         switch (input)
         {
